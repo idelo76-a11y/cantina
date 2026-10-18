@@ -1,6 +1,6 @@
 // Service worker: tiene in memoria l'app così si apre anche con poco segnale.
 // I dati (bottiglie e foto) passano sempre da Supabase e non vengono messi qui.
-const VERSION = "cantina-v4";
+const VERSION = "cantina-v5";
 const SHELL = ["./", "index.html", "config.js", "manifest.webmanifest", "vendor/supabase.js", "vendor/jszip.min.js",
   "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 

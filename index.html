@@ -293,6 +293,15 @@ function locText(b){
   if(c)return "Cantina";
   return "";
 }
+/* data di inserimento: campo addedAt, oppure ricavata dall'id per i vini già presenti */
+function addedAt(b){
+  if(+b.addedAt)return +b.addedAt;
+  const ok=n=>Number.isFinite(n)&&n>1.5e12&&n<4.1e12;
+  const id=String(b.id||"");
+  const a=parseInt(id.slice(0,-5),36);if(ok(a))return a;
+  const h=id.slice(0,-6);if(/^[0-9a-f]+$/i.test(h)){const x=parseInt(h,16);if(ok(x))return x}
+  return 0;
+}
 function syncQty(b){
   b.qtyBy={cantina:qAt(b,"cantina"),frigo:qAt(b,"frigo")};
   b.qty=b.qtyBy.cantina+b.qtyBy.frigo;
@@ -311,7 +320,7 @@ let user=null;
 
 /* ================= stato ================= */
 let data={bottles:[],log:[]};
-let view="cantina",query="",sort="producer",fType="",fRegion="",fVintage="",fLoc="",showEmpty=false;
+let view="cantina",query="",sort=(()=>{try{return localStorage.getItem("cantina:sort")||"producer"}catch{return "producer"}})(),fType="",fRegion="",fVintage="",fLoc="",showEmpty=false;
 let editingId=null,drinkingId=null,rating=0,readToken=0,reading=false,installEvt=null;
 let pend={front:null,back:null},removed={front:false,back:false},touched=new Set();
 
@@ -504,14 +513,16 @@ function renderCantina(){
     return !q||[b.producer,b.name,b.region,b.grape,b.vintage,b.location,b.shop].join(" ").toLowerCase().includes(q);
   });
   const cmp={producer:(a,b)=>String(a.producer).localeCompare(String(b.producer)),vintage:(a,b)=>(+a.vintage||9999)-(+b.vintage||9999),
-    qty:(a,b)=>(+b.qty||0)-(+a.qty||0),to:(a,b)=>(+a.to||9999)-(+b.to||9999),price:(a,b)=>(+b.price||0)-(+a.price||0)};
+    qty:(a,b)=>(+b.qty||0)-(+a.qty||0),to:(a,b)=>(+a.to||9999)-(+b.to||9999),price:(a,b)=>(+b.price||0)-(+a.price||0),
+    recent:(a,b)=>addedAt(b)-addedAt(a)||String(a.producer).localeCompare(String(b.producer))};
+  if(!cmp[sort])sort="producer";
   list.sort(cmp[sort]);
   const n=b=>fLoc?qAt(b,fLoc):(+b.qty||0);
   const nBott=list.reduce((s,b)=>s+n(b),0);
   const value=list.reduce((s,b)=>s+(+b.price||0)*n(b),0);
   const active=fType||fRegion||fVintage||fLoc||q;
   return `<div class="tools"><input id="q" type="search" placeholder="Cerca produttore, vino, negozio…" value="${esc(query)}">
-    <select id="sort" aria-label="Ordina"><option value="producer">Produttore</option><option value="vintage">Annata</option><option value="to">Da bere prima</option><option value="qty">Quantità</option><option value="price">Prezzo</option></select></div>
+    <select id="sort" aria-label="Ordina"><option value="producer">Produttore</option><option value="recent">Aggiunti di recente</option><option value="vintage">Annata</option><option value="to">Da bere prima</option><option value="qty">Quantità</option><option value="price">Prezzo</option></select></div>
     <div class="filters">
       <select id="fType" aria-label="Tipologia" class="${fType?"on":""}">${opt("","Tutte le tipologie",fType)}${Object.entries(TYPES).map(([k,v])=>opt(k,v,fType)).join("")}</select>
       <select id="fRegion" aria-label="Regione" class="${fRegion?"on":""}">${opt("","Tutte le regioni",fRegion)}${regions.map(r=>opt(r,r,fRegion)).join("")}</select>
@@ -734,7 +745,7 @@ fB.addEventListener("submit",async e=>{
     }
   }
   const was=editingId;
-  if(was)Object.assign(cur(),o);else data.bottles.push({id,...o});
+  if(was)Object.assign(cur(),o);else data.bottles.push({id,addedAt:Date.now(),...o});
   readToken++;reading=false;clearPend();$("#dlgBottle").close();save();render();
   toast(photoFail?"Bottiglia salvata, ma la foto non è stata caricata":was?"Modifiche salvate":"Bottiglia aggiunta");
   removePhotos(toDrop);
@@ -891,7 +902,8 @@ function importCsv(text){
     const key=[b.producer,b.name,b.vintage,b.format].join("|").toLowerCase();
     if(groups.has(key)){const g=groups.get(key);g.qtyBy.cantina+=add.cantina;g.qtyBy.frigo+=add.frigo}
     else{b.qtyBy=add;groups.set(key,b)}});
-  groups.forEach(b=>data.bottles.push(syncQty(b)));
+  const now=Date.now();
+  groups.forEach(b=>{b.addedAt=now;data.bottles.push(syncQty(b))});
   return groups.size;
 }
 async function restore(d,zip){
@@ -977,7 +989,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("change",e=>{
   const id=e.target.id;
-  if(id==="sort"){sort=e.target.value;render()}
+  if(id==="sort"){sort=e.target.value;try{localStorage.setItem("cantina:sort",sort)}catch{}render()}
   else if(id==="fType"){fType=e.target.value;render()}
   else if(id==="fRegion"){fRegion=e.target.value;render()}
   else if(id==="fVintage"){fVintage=e.target.value;render()}
