@@ -70,6 +70,18 @@ header h1{font-size:2rem;line-height:1.1}
 .item{background:var(--paper);display:flex;gap:12px;padding:12px;align-items:flex-start}
 .thumb{width:56px;height:76px;flex:0 0 56px;border-radius:6px;overflow:hidden;position:relative;border-left:4px solid var(--c);background:var(--field)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block;position:relative;z-index:1}
+.thumb[data-photo]{cursor:zoom-in}
+.item[data-open]{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.item[data-open]:active{background:var(--field)}
+#viewer{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:#000;color:#fff}
+#viewer::backdrop{background:#000}
+#viewer .vw{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+#vwImg{max-width:100%;max-height:100%;object-fit:contain;touch-action:pinch-zoom}
+#viewer .vw-bar{position:absolute;left:0;right:0;top:0;display:flex;gap:8px;align-items:center;padding:calc(12px + env(safe-area-inset-top,0px)) 12px 12px;background:linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0))}
+#viewer .vw-tab{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;border-radius:16px;padding:5px 12px;font-size:.88rem}
+#viewer .vw-tab[aria-pressed=true]{background:#fff;color:#000}
+#viewer .vw-close{margin-left:auto;border:0;background:rgba(255,255,255,.15);color:#fff;width:40px;height:40px;border-radius:50%;font-size:1.2rem}
+#viewer .vw-msg{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;font-size:.88rem;opacity:.75}
 .thumb .ph{position:absolute;inset:0;background:var(--c);opacity:.28}
 .info{flex:1;min-width:0}
 .info h3{font-size:1.06rem;line-height:1.25}
@@ -189,13 +201,13 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
         <input type="file" id="pf" class="vh" accept="image/*" capture="environment" tabindex="-1">
         <input type="file" id="pfg" class="vh" accept="image/*" tabindex="-1">
         <label class="slot-pic" id="slotFront" for="pf" role="button" tabindex="0"></label>
-        <div class="slot-links"><label class="slot-x" for="pfg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="front" hidden>rimuovi</button></div>
+        <div class="slot-links"><label class="slot-x" for="pf" role="button" tabindex="0" data-new="front" hidden>nuova foto</label><label class="slot-x" for="pfg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="front" hidden>rimuovi</button></div>
       </div>
       <div class="slot">
         <input type="file" id="pb" class="vh" accept="image/*" capture="environment" tabindex="-1">
         <input type="file" id="pbg" class="vh" accept="image/*" tabindex="-1">
         <label class="slot-pic" id="slotBack" for="pb" role="button" tabindex="0"></label>
-        <div class="slot-links"><label class="slot-x" for="pbg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="back" hidden>rimuovi</button></div>
+        <div class="slot-links"><label class="slot-x" for="pb" role="button" tabindex="0" data-new="back" hidden>nuova foto</label><label class="slot-x" for="pbg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="back" hidden>rimuovi</button></div>
       </div>
     </div>
     <div class="readbar" id="readbar" role="status" aria-live="polite"></div>
@@ -247,6 +259,16 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
   </div>
 </form></dialog>
 
+<dialog id="viewer" aria-label="Foto ingrandita"><div class="vw">
+  <img id="vwImg" alt="">
+  <div class="vw-bar">
+    <button type="button" class="vw-tab" data-side="front">Etichetta</button>
+    <button type="button" class="vw-tab" data-side="back">Controetichetta</button>
+    <button type="button" class="vw-close" aria-label="Chiudi">✕</button>
+  </div>
+  <div class="vw-msg" id="vwMsg">Tocca per chiudere</div>
+</div></dialog>
+
 <input type="file" id="fileIn" class="vh" accept=".zip,.json,.csv,application/zip,text/csv,text/comma-separated-values,application/json,application/vnd.ms-excel,text/plain" tabindex="-1">
 <div class="busy" id="busy" role="status" aria-live="polite" hidden><div><div class="spin"></div><span id="busyText">Attendere…</span></div></div>
 <div class="toast" id="toast" role="status"></div>
@@ -291,6 +313,7 @@ function migrate(d){
     const x={...b,type:b.type==="bollicine"?"spbianco":tkey(b.type),format:b.format||"0.75"};
     if(!ownPath(x.photoFront))delete x.photoFront;
     if(!ownPath(x.photoBack))delete x.photoBack;
+    if(!ownPath(x.photoThumb))delete x.photoThumb;
     delete x.photoFrontFile;delete x.photoBackFile;
     return x;
   });
@@ -365,7 +388,13 @@ async function startApp(){
 
 /* ================= foto ================= */
 const urlCache=new Map();
-function photoTag(path,cls){return ownPath(path)?`<img class="${cls}" data-path="${esc(path)}" alt="">`:""}
+function photoTag(path,cls){return ownPath(path)?`<img class="${cls}" data-path="${esc(path)}" alt="" loading="lazy">`:""}
+async function signedUrl(path){
+  const c=urlCache.get(path);if(c&&c.exp>Date.now())return c.url;
+  const {data:r,error}=await sb.storage.from(BUCKET).createSignedUrl(path,86400);
+  if(error||!r)throw error||new Error("url");
+  urlCache.set(path,{url:r.signedUrl,exp:Date.now()+86000*1000});return r.signedUrl;
+}
 async function hydrate(root=document){
   const imgs=[...root.querySelectorAll("img[data-path]")];if(!imgs.length)return;
   const now=Date.now();
@@ -408,13 +437,16 @@ function renderHeader(){
   $("#rack").innerHTML=dots.join("");
   $("#legend").innerHTML=Object.keys(TYPES).filter(k=>by[k]).map(k=>`<span style="--c:var(--${k})">${TYPES[k]} ${by[k]}</span>`).join("");
 }
-function thumb(b){return `<div class="thumb" style="--c:var(--${tkey(b.type)})"><div class="ph"></div>${photoTag(b.photoFront,"thumb-img")}</div>`}
+function thumb(b){
+  const has=b.id&&(ownPath(b.photoFront)||ownPath(b.photoBack));
+  return `<div class="thumb" style="--c:var(--${tkey(b.type)})"${has?` data-photo="${esc(b.id)}" role="button" aria-label="Ingrandisci foto"`:""}><div class="ph"></div>${photoTag(b.photoThumb||b.photoFront,"thumb-img")}</div>`;
+}
 function bottleRow(b){
   const s=status(b);
   const fmt=b.format&&b.format!=="0.75"&&FORMATS[b.format]?FORMATS[b.format]:"";
   const meta=[b.vintage,TYPES[tkey(b.type)],b.region,b.grape,fmt].filter(Boolean).map(esc).join(", ");
   const extra=[b.price?CHF(+b.price):"",b.shop?`da ${esc(b.shop)}`:""].filter(Boolean).join(" ");
-  return `<div class="item">
+  return `<div class="item" data-open="${esc(b.id)}">
     ${thumb(b)}
     <div class="info">
       <h3>${esc(b.producer)}</h3>
@@ -423,7 +455,6 @@ function bottleRow(b){
       ${s?`<span class="badge ${s.c}">${s.t}</span>`:""}
       <div class="row-actions">
         <button class="btn primary" data-drink="${b.id}" ${+b.qty>0?"":"disabled"}>Stappa</button>
-        <button class="btn" data-edit="${b.id}">Modifica</button>
       </div>
     </div>
     <div class="qty"><b>${+b.qty||0}</b><small>bott.</small>
@@ -531,6 +562,7 @@ function refreshPhotoArea(){
     el.innerHTML=pend[s]?`<img src="${esc(pend[s].url)}" alt="${lbl}">`:has?photoTag(b[key],""):`+ ${lbl}`;
     el.setAttribute("aria-label",has?`Sostituisci ${lbl.toLowerCase()}`:`Aggiungi ${lbl.toLowerCase()}`);
     document.querySelector(`[data-rm="${s}"]`).hidden=!has;
+    document.querySelector(`[data-new="${s}"]`).hidden=!has;
   });
   hydrate($("#photoArea"));
   if(!reading)setReadbar(readHint());
@@ -570,6 +602,17 @@ function setPhoto(side,file){
 }
 $("#pf").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("front",f)});
 $("#pb").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("back",f)});
+/* tocco su una foto già presente nella scheda: ingrandisci invece di riaprire la fotocamera */
+function slotSrcs(){
+  const b=cur()||{};const out={};
+  [["front","photoFront"],["back","photoBack"]].forEach(([s,k])=>{
+    if(pend[s])out[s]={url:pend[s].url};else if(!removed[s]&&ownPath(b[k]))out[s]={path:b[k]};
+  });
+  return out;
+}
+["front","back"].forEach(s=>$(s==="front"?"#slotFront":"#slotBack").addEventListener("click",e=>{
+  const src=slotSrcs();if(src[s]){e.preventDefault();openViewer(src,s)}
+}));
 $("#pfg").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("front",f)});
 $("#pbg").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("back",f)});
 $("#photoIn").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(!f)return;openBottle(null);setPhoto("front",f)});
@@ -646,11 +689,21 @@ fB.addEventListener("submit",async e=>{
   o.producer||="—";o.name||="—";o.qty=+o.qty||0;
   const btn=$("#btnSave");btn.disabled=true;btn.textContent="Salvataggio…";
   const old=cur()||{};const id=old.id||uid();const toDrop=[];let photoFail=false;
-  for(const [s,key,max] of [["front","photoFront",700],["back","photoBack",1200]]){
+  for(const [s,key] of [["front","photoFront"],["back","photoBack"]]){
     if(pend[s]){
-      try{o[key]=await uploadPhoto(id,s,await toJpeg(pend[s].file,max,0.82));if(old[key])toDrop.push(old[key])}
-      catch{photoFail=true}
-    }else if(removed[s]&&old[key]){toDrop.push(old[key]);o[key]=null}
+      try{
+        o[key]=await uploadPhoto(id,s,await toJpeg(pend[s].file,1400,0.82));
+        if(old[key])toDrop.push(old[key]);
+        if(s==="front"){
+          if(old.photoThumb)toDrop.push(old.photoThumb);
+          o.photoThumb=null;
+          try{o.photoThumb=await uploadPhoto(id,"thumb",await toJpeg(pend[s].file,320,0.75))}catch{}
+        }
+      }catch{photoFail=true}
+    }else if(removed[s]&&old[key]){
+      toDrop.push(old[key]);o[key]=null;
+      if(s==="front"&&old.photoThumb){toDrop.push(old.photoThumb);o.photoThumb=null}
+    }
   }
   const was=editingId;
   if(was)Object.assign(cur(),o);else data.bottles.push({id,...o});
@@ -665,7 +718,7 @@ $("#btnDelete").onclick=async()=>{
   if(!await ask("Eliminare la bottiglia?","Le voci del diario restano, le foto vengono eliminate.","Elimina")){openBottle(id);return}
   const b=data.bottles.find(x=>x.id===id);
   data.bottles=data.bottles.filter(x=>x.id!==id);save();render();toast("Bottiglia eliminata");
-  if(b)removePhotos([b.photoFront,b.photoBack]);
+  if(b)removePhotos([b.photoFront,b.photoBack,b.photoThumb]);
 };
 
 /* ================= stappa ================= */
@@ -685,6 +738,47 @@ fD.addEventListener("submit",e=>{
   $("#dlgDrink").close();save();render();toast("Registrato nel diario");
 });
 $("#drinkCancel").onclick=()=>$("#dlgDrink").close();
+
+/* ================= foto a tutto schermo ================= */
+let vw={srcs:{},side:"front",token:0};
+function srcsOf(b){
+  const out={};
+  if(ownPath(b.photoFront))out.front={path:b.photoFront};
+  if(ownPath(b.photoBack))out.back={path:b.photoBack};
+  return out;
+}
+async function showViewerSide(){
+  const s=vw.srcs[vw.side];const img=$("#vwImg");const t=++vw.token;
+  document.querySelectorAll("#viewer .vw-tab").forEach(b=>{
+    b.hidden=!(vw.srcs.front&&vw.srcs.back);
+    b.setAttribute("aria-pressed",String(b.dataset.side===vw.side));
+  });
+  img.removeAttribute("src");$("#vwMsg").textContent="Caricamento…";
+  try{
+    const url=s.url||await signedUrl(s.path);
+    if(t!==vw.token)return;
+    img.src=url;$("#vwMsg").textContent="Tocca per chiudere";
+  }catch{if(t===vw.token)$("#vwMsg").textContent="Foto non disponibile: controlla la connessione"}
+}
+function openViewer(srcs,side){
+  if(!srcs.front&&!srcs.back)return;
+  vw.srcs=srcs;vw.side=srcs[side]?side:(srcs.front?"front":"back");
+  const d=$("#viewer");
+  if(!d.open){d.showModal();try{history.pushState({cantinaViewer:1},"")}catch{}}
+  showViewerSide();
+}
+function closeViewer(fromBack){
+  const d=$("#viewer");if(!d.open)return;
+  d.close();vw.token++;$("#vwImg").removeAttribute("src");
+  if(!fromBack&&history.state&&history.state.cantinaViewer){try{history.back()}catch{}}
+}
+$("#viewer").addEventListener("click",e=>{
+  const tab=e.target.closest(".vw-tab");
+  if(tab){vw.side=tab.dataset.side;showViewerSide();return}
+  closeViewer(false);
+});
+$("#viewer").addEventListener("cancel",e=>{e.preventDefault();closeViewer(false)});
+window.addEventListener("popstate",()=>{if($("#viewer").open)closeViewer(true)});
 
 /* ================= esportazione ================= */
 function download(filename,content){
@@ -762,7 +856,7 @@ async function restore(d,zip){
   if(!Array.isArray(d.bottles))throw 0;
   const nb=d.bottles.length,np=d.bottles.reduce((s,b)=>s+(b.photoFrontFile?1:0)+(b.photoBackFile?1:0),0);
   if(!await ask("Sostituire la cantina?",`I dati attuali verranno sostituiti con ${nb} etichette${zip&&np?` e ${np} foto`:""} dal file.`,"Sostituisci"))return false;
-  const oldPaths=data.bottles.flatMap(b=>[b.photoFront,b.photoBack]);
+  const oldPaths=data.bottles.flatMap(b=>[b.photoFront,b.photoBack,b.photoThumb]);
   const bottles=d.bottles.map(b=>({...b,id:b.id||uid()}));
   if(zip){
     let done=0,fail=0;
@@ -778,7 +872,7 @@ async function restore(d,zip){
     if(fail)toast(`${fail} foto non sono state caricate`);
   }
   data=migrate({bottles,log:d.log||[]});
-  const keep=new Set(data.bottles.flatMap(b=>[b.photoFront,b.photoBack]));
+  const keep=new Set(data.bottles.flatMap(b=>[b.photoFront,b.photoBack,b.photoThumb]));
   removePhotos(oldPaths.filter(p=>p&&!keep.has(p)));
   return true;
 }
@@ -806,8 +900,16 @@ $("#fileIn").addEventListener("change",async e=>{
 
 /* ================= eventi ================= */
 document.addEventListener("click",async e=>{
-  if(e.target.closest("dialog"))return;
-  const t=e.target.closest("button");if(!t||!user)return;const d=t.dataset;
+  if(e.target.closest("dialog")||!user)return;
+  const ph=e.target.closest("[data-photo]");
+  if(ph){const pb=data.bottles.find(x=>x.id===ph.dataset.photo);if(pb){openViewer(srcsOf(pb),"front");return}}
+  const t=e.target.closest("button");
+  if(!t){
+    const it=e.target.closest(".item[data-open]");
+    if(it&&!e.target.closest("label,input,select,a"))openBottle(it.dataset.open);
+    return;
+  }
+  const d=t.dataset;
   if(d.view){view=d.view;render();window.scrollTo(0,0)}
   else if(d.edit)openBottle(d.edit);
   else if(d.drink)openDrink(d.drink);
@@ -821,7 +923,7 @@ document.addEventListener("click",async e=>{
   else if(t.id==="installBtn"&&installEvt){installEvt.prompt();installEvt=null;render()}
   else if(t.id==="logout"){if(await ask("Uscire?","Per rientrare serviranno email e password.","Esci")){await sb.auth.signOut();user=null;showGate("login")}}
   else if(t.id==="wipe"){if(await ask("Cancellare tutto?","Bottiglie, foto e diario verranno eliminati definitivamente.","Cancella tutto")){
-    const paths=data.bottles.flatMap(b=>[b.photoFront,b.photoBack]);
+    const paths=data.bottles.flatMap(b=>[b.photoFront,b.photoBack,b.photoThumb]);
     data={bottles:[],log:[]};save();render();toast("Dati cancellati");removePhotos(paths)}}
 });
 document.addEventListener("input",e=>{
