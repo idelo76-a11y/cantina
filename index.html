@@ -112,7 +112,8 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
 .slot-pic{aspect-ratio:3/4;max-width:100%;border:1px dashed var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--accent);font-size:.9rem;overflow:hidden;cursor:pointer;background:var(--field);padding:6px;-webkit-tap-highlight-color:transparent}
 .slot-pic.has{border-style:solid;border-color:var(--line);padding:0}
 .slot-pic img{width:100%;height:100%;object-fit:cover;display:block}
-.slot-x{align-self:flex-start;border:0;background:none;color:var(--muted);font-size:.82rem;padding:0;text-decoration:underline}
+.slot-x{align-self:flex-start;border:0;background:none;color:var(--muted);font-size:.82rem;padding:0;text-decoration:underline;cursor:pointer;display:inline}
+.slot-links{display:flex;gap:14px;flex-wrap:wrap}
 .readbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;font-size:.88rem;color:var(--muted);min-height:1.5em}
 .readbar.err{color:var(--late)}
 .spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite;flex:0 0 18px}
@@ -168,7 +169,7 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
     <main id="main"></main>
   </div>
 
-  <input type="file" id="photoIn" class="vh" accept="image/*" tabindex="-1">
+  <input type="file" id="photoIn" class="vh" accept="image/*" capture="environment" tabindex="-1">
   <label class="fab cam" id="camFab" for="photoIn" role="button" tabindex="0" aria-label="Fotografa etichetta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></label>
   <button class="fab" id="fab" aria-label="Aggiungi bottiglia">+</button>
 
@@ -185,14 +186,16 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
   <div id="photoArea">
     <div class="slots">
       <div class="slot">
-        <input type="file" id="pf" class="vh" accept="image/*" tabindex="-1">
+        <input type="file" id="pf" class="vh" accept="image/*" capture="environment" tabindex="-1">
+        <input type="file" id="pfg" class="vh" accept="image/*" tabindex="-1">
         <label class="slot-pic" id="slotFront" for="pf" role="button" tabindex="0"></label>
-        <button type="button" class="slot-x" data-rm="front" hidden>Rimuovi foto</button>
+        <div class="slot-links"><label class="slot-x" for="pfg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="front" hidden>rimuovi</button></div>
       </div>
       <div class="slot">
-        <input type="file" id="pb" class="vh" accept="image/*" tabindex="-1">
+        <input type="file" id="pb" class="vh" accept="image/*" capture="environment" tabindex="-1">
+        <input type="file" id="pbg" class="vh" accept="image/*" tabindex="-1">
         <label class="slot-pic" id="slotBack" for="pb" role="button" tabindex="0"></label>
-        <button type="button" class="slot-x" data-rm="back" hidden>Rimuovi foto</button>
+        <div class="slot-links"><label class="slot-x" for="pbg" role="button" tabindex="0">dalla galleria</label><button type="button" class="slot-x" data-rm="back" hidden>rimuovi</button></div>
       </div>
     </div>
     <div class="readbar" id="readbar" role="status" aria-live="polite"></div>
@@ -567,6 +570,8 @@ function setPhoto(side,file){
 }
 $("#pf").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("front",f)});
 $("#pb").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("back",f)});
+$("#pfg").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("front",f)});
+$("#pbg").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(f)setPhoto("back",f)});
 $("#photoIn").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(!f)return;openBottle(null);setPhoto("front",f)});
 fB.addEventListener("click",e=>{
   const rm=e.target.closest("[data-rm]");
