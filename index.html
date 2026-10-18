@@ -57,7 +57,7 @@ header h1{font-size:2rem;line-height:1.1}
 .tools{display:flex;gap:8px;margin-block:8px 10px}
 .tools input,.tools select,.filters select{min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
 .tools input{flex:1}
-.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:8px}
 .filters select{width:100%;padding:8px 10px;font-size:.92rem}
 .filters select.on{border-color:var(--accent);color:var(--accent);font-weight:600}
 .subbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:.9rem}
@@ -145,7 +145,6 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
 .section .acts{display:flex;gap:8px;flex-wrap:wrap}
 .big{font-family:var(--display);font-size:1.6rem;font-variant-numeric:tabular-nums}
 .log-note{font-style:italic;margin-top:4px;font-size:.92rem}
-@media (max-width:380px){.filters{grid-template-columns:1fr 1fr}.filters select:first-child{grid-column:1/-1}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -218,12 +217,13 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
     <label>Annata<input id="f-vintage" name="vintage" type="number" inputmode="numeric" min="1900" max="2100"></label>
     <label>Tipologia<select id="f-type" name="type"></select></label>
     <label>Formato<select id="f-format" name="format"></select></label>
-    <label>Quantità<input id="f-qty" name="qty" type="number" inputmode="numeric" min="0" value="1"></label>
     <label>Regione<input id="f-region" name="region" list="regionList"></label>
     <label>Vitigno<input id="f-grape" name="grape"></label>
-    <label>Prezzo (CHF)<input id="f-price" name="price" type="number" inputmode="decimal" step="0.05" min="0"></label>
+    <label>Prezzo per bottiglia (CHF)<input id="f-price" name="price" type="number" inputmode="decimal" step="0.05" min="0"></label>
     <label>Dove l'ho acquistata<input id="f-shop" name="shop" list="shopList" placeholder="es. Enoteca, cantina, online"></label>
-    <label class="full">Posizione<select id="f-location" name="location"></select></label>
+    <label>In cantina (bottiglie)<input id="f-qc" name="qc" type="number" inputmode="numeric" min="0" value="1"></label>
+    <label>In frigo vini (bottiglie)<input id="f-qf" name="qf" type="number" inputmode="numeric" min="0" value="0"></label>
+    <div class="full meta" id="qtyTotal" aria-live="polite"></div>
     <label>Bere dal<input id="f-from" name="from" type="number" inputmode="numeric"></label>
     <label>Bere entro<input id="f-to" name="to" type="number" inputmode="numeric"></label>
     <label class="full">Note<textarea id="f-notes" name="notes" rows="2"></textarea></label>
@@ -242,6 +242,7 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
   <div class="grid" style="margin-top:12px">
     <label>Data<input id="d-date" name="date" type="date"></label>
     <div class="lbl">Voto<div class="stars" id="stars"></div></div>
+    <label class="full" id="d-fromWrap">Da dove la prendi<select id="d-from"><option value="frigo">Frigo vini</option><option value="cantina">Cantina</option></select></label>
     <label class="full">Note di degustazione<textarea id="d-note" name="note" rows="3" placeholder="Com'era? Con cosa l'hai abbinato?"></textarea></label>
   </div>
   <div class="dlg-actions">
@@ -281,8 +282,23 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
 /* ================= costanti ================= */
 const TYPES={rosso:"Rosso",bianco:"Bianco",rosato:"Rosato",spbianco:"Spumante bianco",sprose:"Spumante rosé",dolce:"Dolce",altro:"Altro"};
 const FORMATS={"0.1875":"Piccolo 0,1875 l","0.375":"Mezza 0,375 l","0.5":"0,5 l","0.75":"Standard 0,75 l","1":"Litro 1 l","1.5":"Magnum 1,5 l","3":"Doppio magnum 3 l","5":"Jeroboam 5 l","6":"Matusalemme 6 l"};
-const LOCS=["Cantina","Frigo vini"];
-const F=["producer","name","vintage","type","format","region","grape","qty","price","shop","location","from","to","notes"];
+const LOCS={cantina:"Cantina",frigo:"Frigo vini"};
+const F=["producer","name","vintage","type","format","region","grape","price","shop","from","to","notes"];
+/* quantità divise per posizione: b.qtyBy={cantina:n,frigo:n}; b.qty = totale */
+const qAt=(b,k)=>Math.max(0,+(b.qtyBy&&b.qtyBy[k])||0);
+function locText(b){
+  const c=qAt(b,"cantina"),f=qAt(b,"frigo");
+  if(c&&f)return `${c} in cantina, ${f} in frigo`;
+  if(f)return "Frigo vini";
+  if(c)return "Cantina";
+  return "";
+}
+function syncQty(b){
+  b.qtyBy={cantina:qAt(b,"cantina"),frigo:qAt(b,"frigo")};
+  b.qty=b.qtyBy.cantina+b.qtyBy.frigo;
+  b.location=locText(b)||b.location||"";
+  return b;
+}
 const BUCKET="etichette";
 const YEAR=new Date().getFullYear();
 const CHF=n=>n.toLocaleString("it-CH",{style:"currency",currency:"CHF"});
@@ -295,7 +311,7 @@ let user=null;
 
 /* ================= stato ================= */
 let data={bottles:[],log:[]};
-let view="cantina",query="",sort="producer",fType="",fRegion="",fVintage="",showEmpty=false;
+let view="cantina",query="",sort="producer",fType="",fRegion="",fVintage="",fLoc="",showEmpty=false;
 let editingId=null,drinkingId=null,rating=0,readToken=0,reading=false,installEvt=null;
 let pend={front:null,back:null},removed={front:false,back:false},touched=new Set();
 
@@ -315,7 +331,11 @@ function migrate(d){
     if(!ownPath(x.photoBack))delete x.photoBack;
     if(!ownPath(x.photoThumb))delete x.photoThumb;
     delete x.photoFrontFile;delete x.photoBackFile;
-    return x;
+    if(!x.qtyBy||typeof x.qtyBy!=="object"){
+      const q=Math.max(0,+x.qty||0),fr=/frig/i.test(x.location||"");
+      x.qtyBy={cantina:fr?0:q,frigo:fr?q:0};
+    }
+    return syncQty(x);
   });
   const log=(d.log||[]).map(l=>({...l,type:l.type==="bollicine"?"spbianco":tkey(l.type)}));
   return {bottles,log};
@@ -430,7 +450,8 @@ function status(b){
 function renderHeader(){
   const total=data.bottles.reduce((s,b)=>s+(+b.qty||0),0);
   const labels=data.bottles.filter(b=>+b.qty>0).length;
-  $("#count").textContent=total?`${total} bottiglie, ${labels} etichette`:"Nessuna bottiglia ancora";
+  const inFrigo=data.bottles.reduce((s,b)=>s+qAt(b,"frigo"),0);
+  $("#count").textContent=total?`${total} bottiglie, ${labels} etichette${inFrigo?`, di cui ${inFrigo} nel frigo vini`:""}`:"Nessuna bottiglia ancora";
   const dots=[],by={};
   data.bottles.forEach(b=>{by[tkey(b.type)]=(by[tkey(b.type)]||0)+(+b.qty||0)});
   Object.keys(TYPES).forEach(k=>{for(let i=0;i<(by[k]||0)&&dots.length<400;i++)dots.push(`<i style="background:var(--${k})"></i>`)});
@@ -451,13 +472,13 @@ function bottleRow(b){
     <div class="info">
       <h3>${esc(b.producer)}</h3>
       <div>${esc(b.name)}</div>
-      <div class="meta">${meta}${extra?`<br>${extra}`:""}${b.location?`<br>Posizione: ${esc(b.location)}`:""}</div>
+      <div class="meta">${meta}${extra?`<br>${extra}`:""}${locText(b)?`<br>Posizione: ${esc(locText(b))}`:""}</div>
       ${s?`<span class="badge ${s.c}">${s.t}</span>`:""}
       <div class="row-actions">
         <button class="btn primary" data-drink="${b.id}" ${+b.qty>0?"":"disabled"}>Stappa</button>
       </div>
     </div>
-    <div class="qty"><b>${+b.qty||0}</b><small>bott.</small>
+    <div class="qty"><b>${fLoc?qAt(b,fLoc):(+b.qty||0)}</b><small>${fLoc==="frigo"?"in frigo":fLoc==="cantina"?"in cantina":"bott."}</small>
       <button class="btn ghost" data-plus="${b.id}" aria-label="Aggiungi una bottiglia">+1</button>
     </div>
   </div>`;
@@ -475,6 +496,7 @@ function renderCantina(){
   const q=query.toLowerCase();
   const list=data.bottles.filter(b=>{
     if(!showEmpty&&!(+b.qty>0))return false;
+    if(fLoc&&!showEmpty&&!(qAt(b,fLoc)>0))return false;
     if(fType&&tkey(b.type)!==fType)return false;
     if(fRegion&&String(b.region||"").trim()!==fRegion)return false;
     if(fVintage==="nv"&&b.vintage)return false;
@@ -484,15 +506,17 @@ function renderCantina(){
   const cmp={producer:(a,b)=>String(a.producer).localeCompare(String(b.producer)),vintage:(a,b)=>(+a.vintage||9999)-(+b.vintage||9999),
     qty:(a,b)=>(+b.qty||0)-(+a.qty||0),to:(a,b)=>(+a.to||9999)-(+b.to||9999),price:(a,b)=>(+b.price||0)-(+a.price||0)};
   list.sort(cmp[sort]);
-  const nBott=list.reduce((s,b)=>s+(+b.qty||0),0);
-  const value=list.reduce((s,b)=>s+(+b.price||0)*(+b.qty||0),0);
-  const active=fType||fRegion||fVintage||q;
+  const n=b=>fLoc?qAt(b,fLoc):(+b.qty||0);
+  const nBott=list.reduce((s,b)=>s+n(b),0);
+  const value=list.reduce((s,b)=>s+(+b.price||0)*n(b),0);
+  const active=fType||fRegion||fVintage||fLoc||q;
   return `<div class="tools"><input id="q" type="search" placeholder="Cerca produttore, vino, negozio…" value="${esc(query)}">
     <select id="sort" aria-label="Ordina"><option value="producer">Produttore</option><option value="vintage">Annata</option><option value="to">Da bere prima</option><option value="qty">Quantità</option><option value="price">Prezzo</option></select></div>
     <div class="filters">
       <select id="fType" aria-label="Tipologia" class="${fType?"on":""}">${opt("","Tutte le tipologie",fType)}${Object.entries(TYPES).map(([k,v])=>opt(k,v,fType)).join("")}</select>
       <select id="fRegion" aria-label="Regione" class="${fRegion?"on":""}">${opt("","Tutte le regioni",fRegion)}${regions.map(r=>opt(r,r,fRegion)).join("")}</select>
       <select id="fVintage" aria-label="Annata" class="${fVintage?"on":""}">${opt("","Tutte le annate",fVintage)}${vintages.map(v=>opt(v,v,fVintage)).join("")}${hasNoVintage?opt("nv","Senza annata",fVintage):""}</select>
+      <select id="fLoc" aria-label="Posizione" class="${fLoc?"on":""}">${opt("","Cantina e frigo",fLoc)}${opt("cantina","Solo cantina",fLoc)}${opt("frigo","Solo frigo vini",fLoc)}</select>
     </div>
     <div class="subbar">
       <span class="tot"><b>${nBott}</b> bottiglie in ${list.length} etichette${value?`, ${CHF(value)}`:""}</span>
@@ -577,12 +601,10 @@ function setReadbar({html,err,spin}){
 }
 function openBottle(id,pre){
   editingId=id;clearPend();readToken++;reading=false;
-  const b=cur()||{type:"rosso",qty:1,format:"0.75",location:"Cantina",...(pre||{})};
+  const b=cur()||{type:"rosso",qty:1,qtyBy:{cantina:1,frigo:0},format:"0.75",...(pre||{})};
   $("#dlgTitle").textContent=id?"Modifica bottiglia":"Nuova bottiglia";
-  const loc=b.location||"Cantina";
-  $("#f-location").innerHTML=(LOCS.includes(loc)?LOCS:[...LOCS,loc]).map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("");
   F.forEach(k=>$("#f-"+k).value=b[k]??"");
-  $("#f-location").value=loc;
+  $("#f-qc").value=qAt(b,"cantina");$("#f-qf").value=qAt(b,"frigo");updQtyTotal();
   if(!$("#f-format").value)$("#f-format").value="0.75";
   touched=new Set(id?F.filter(k=>b[k]!==""&&b[k]!=null):[]);
   $("#regionList").innerHTML=uniq(data.bottles.map(x=>x.region)).map(v=>`<option value="${esc(v)}">`).join("");
@@ -592,7 +614,11 @@ function openBottle(id,pre){
   refreshPhotoArea();
   if(!$("#dlgBottle").open)$("#dlgBottle").showModal();
 }
-fB.addEventListener("input",e=>{if(e.target.name)touched.add(e.target.name)});
+function updQtyTotal(){
+  const c=Math.max(0,+$("#f-qc").value||0),f=Math.max(0,+$("#f-qf").value||0);
+  $("#qtyTotal").textContent=`Totale: ${c+f} ${c+f===1?"bottiglia":"bottiglie"}`;
+}
+fB.addEventListener("input",e=>{if(e.target.name)touched.add(e.target.name);if(e.target.id==="f-qc"||e.target.id==="f-qf")updQtyTotal()});
 fB.addEventListener("change",e=>{if(e.target.name)touched.add(e.target.name)});
 function setPhoto(side,file){
   if(pend[side])URL.revokeObjectURL(pend[side].url);
@@ -686,7 +712,9 @@ fB.addEventListener("submit",async e=>{
   e.preventDefault();
   const o={};F.forEach(k=>{const v=$("#f-"+k).value;o[k]=typeof v==="string"?v.trim():v});
   if(!o.producer&&!o.name){setReadbar({err:true,html:"Inserisci almeno il produttore o il nome del vino."});$("#f-producer").focus();return}
-  o.producer||="—";o.name||="—";o.qty=+o.qty||0;
+  o.producer||="—";o.name||="—";
+  o.qtyBy={cantina:Math.max(0,Math.floor(+$("#f-qc").value||0)),frigo:Math.max(0,Math.floor(+$("#f-qf").value||0))};
+  syncQty(o);
   const btn=$("#btnSave");btn.disabled=true;btn.textContent="Salvataggio…";
   const old=cur()||{};const id=old.id||uid();const toDrop=[];let photoFail=false;
   for(const [s,key] of [["front","photoFront"],["back","photoBack"]]){
@@ -729,12 +757,18 @@ function openDrink(id){
   drinkingId=id;rating=0;const b=data.bottles.find(x=>x.id===id);
   $("#drinkLabel").textContent=`${b.producer}, ${b.name}${b.vintage?" "+b.vintage:""}`;
   $("#d-date").value=new Date().toISOString().slice(0,10);$("#d-note").value="";drawStars();
+  const c=qAt(b,"cantina"),f=qAt(b,"frigo");
+  $("#d-fromWrap").hidden=!(c&&f);
+  $("#d-from").value=f?"frigo":"cantina";
   $("#dlgDrink").showModal();
 }
 fD.addEventListener("submit",e=>{
   e.preventDefault();const b=data.bottles.find(x=>x.id===drinkingId);
-  b.qty=Math.max(0,(+b.qty||0)-1);
-  data.log.push({id:uid(),bottleId:b.id,type:b.type,label:`${b.producer}, ${b.name}${b.vintage?" "+b.vintage:""}`,date:$("#d-date").value,rating,note:$("#d-note").value});
+  syncQty(b);
+  let from=$("#d-from").value;
+  if(!(qAt(b,from)>0))from=qAt(b,"frigo")>0?"frigo":"cantina";
+  b.qtyBy[from]=Math.max(0,qAt(b,from)-1);syncQty(b);
+  data.log.push({id:uid(),bottleId:b.id,type:b.type,label:`${b.producer}, ${b.name}${b.vintage?" "+b.vintage:""}`,date:$("#d-date").value,rating,note:$("#d-note").value,from});
   $("#dlgDrink").close();save();render();toast("Registrato nel diario");
 });
 $("#drinkCancel").onclick=()=>$("#dlgDrink").close();
@@ -786,7 +820,11 @@ function download(filename,content){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
 }
-function toCsv(){return [F.join(";"),...data.bottles.map(b=>F.map(f=>`"${String(b[f]??"").replace(/"/g,'""')}"`).join(";"))].join("\n")}
+function toCsv(){
+  const cols=[...F,"qty","qty_cantina","qty_frigo"];
+  const val=(b,f)=>f==="qty_cantina"?qAt(b,"cantina"):f==="qty_frigo"?qAt(b,"frigo"):b[f];
+  return [cols.join(";"),...data.bottles.map(b=>cols.map(f=>`"${String(val(b,f)??"").replace(/"/g,'""')}"`).join(";"))].join("\n");
+}
 async function exportZip(){
   busy("Preparo l'esportazione…");
   try{
@@ -838,18 +876,22 @@ function importCsv(text){
   for(const[f,re]of Object.entries(MAP)){const i=head.findIndex(h=>re.test(h));if(i>=0)idx[f]=i}
   if(idx.producer==null&&idx.name==null)throw 0;
   const ci=head.findIndex(h=>/^(country|paese|nazione)$/.test(h));
+  const qcI=head.indexOf("qty_cantina"),qfI=head.indexOf("qty_frigo");
   const COUNTRY={switzerland:"Svizzera",italy:"Italia",france:"Francia",spain:"Spagna",germany:"Germania",austria:"Austria",portugal:"Portogallo"};
   const groups=new Map();
   rows.slice(1).forEach(r=>{const b={id:uid()};for(const[f,i]of Object.entries(idx))b[f]=(r[i]||"").trim();
     b.type=TYPES[b.type]?b.type:(()=>{const t=guessType(b.type);return t==="spbianco"&&/ros/i.test(b.name||"")?"sprose":t})();
     b.format=FORMATS[b.format]?b.format:guessFormat(b.format);
-    b.location=/frig/i.test(b.location||"")?"Frigo vini":"Cantina";
+    const inFrigo=/frig/i.test(b.location||"");delete b.location;
     if(!b.region&&ci>=0){const c=(r[ci]||"").trim();b.region=COUNTRY[c.toLowerCase()]||c}
     b.producer||="—";b.name||="—";
-    const q=idx.qty!=null?(+b.qty||1):1;
+    let add;
+    if(qcI>=0||qfI>=0){add={cantina:Math.max(0,+(r[qcI]||0)||0),frigo:Math.max(0,+(r[qfI]||0)||0)}}
+    else{const q=idx.qty!=null?(+b.qty||1):1;add=inFrigo?{cantina:0,frigo:q}:{cantina:q,frigo:0}}
     const key=[b.producer,b.name,b.vintage,b.format].join("|").toLowerCase();
-    if(groups.has(key))groups.get(key).qty+=q;else{b.qty=q;groups.set(key,b)}});
-  groups.forEach(b=>data.bottles.push(b));
+    if(groups.has(key)){const g=groups.get(key);g.qtyBy.cantina+=add.cantina;g.qtyBy.frigo+=add.frigo}
+    else{b.qtyBy=add;groups.set(key,b)}});
+  groups.forEach(b=>data.bottles.push(syncQty(b)));
   return groups.size;
 }
 async function restore(d,zip){
@@ -913,9 +955,13 @@ document.addEventListener("click",async e=>{
   if(d.view){view=d.view;render();window.scrollTo(0,0)}
   else if(d.edit)openBottle(d.edit);
   else if(d.drink)openDrink(d.drink);
-  else if(d.plus){const b=data.bottles.find(x=>x.id===d.plus);b.qty=(+b.qty||0)+1;save();render()}
+  else if(d.plus){
+    const b=syncQty(data.bottles.find(x=>x.id===d.plus));
+    const k=fLoc||(qAt(b,"frigo")>0&&!qAt(b,"cantina")?"frigo":"cantina");
+    b.qtyBy[k]=qAt(b,k)+1;syncQty(b);save();render();toast(`+1 ${k==="frigo"?"nel frigo vini":"in cantina"}`);
+  }
   else if(d.dellog){if(await ask("Eliminare la voce?","La voce verrà rimossa dal diario.","Elimina")){data.log=data.log.filter(l=>l.id!==d.dellog);save();render()}}
-  else if(t.id==="clearF"){fType=fRegion=fVintage=query="";render()}
+  else if(t.id==="clearF"){fType=fRegion=fVintage=fLoc=query="";render()}
   else if(t.id==="emptyAdd")openBottle(null);
   else if(t.id==="exportZip")exportZip();
   else if(t.id==="exportJson")download(`cantina-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(data,null,2));
@@ -935,6 +981,7 @@ document.addEventListener("change",e=>{
   else if(id==="fType"){fType=e.target.value;render()}
   else if(id==="fRegion"){fRegion=e.target.value;render()}
   else if(id==="fVintage"){fVintage=e.target.value;render()}
+  else if(id==="fLoc"){fLoc=e.target.value;render()}
   else if(id==="showEmpty"){showEmpty=e.target.checked;render()}
 });
 document.addEventListener("keydown",e=>{const l=e.target.closest&&e.target.closest("label[for][role=button]");if(l&&(e.key==="Enter"||e.key===" ")){e.preventDefault();l.click()}});
