@@ -71,8 +71,8 @@ header h1{font-size:2rem;line-height:1.1}
 .thumb{width:56px;height:76px;flex:0 0 56px;border-radius:6px;overflow:hidden;position:relative;border-left:4px solid var(--c);background:var(--field)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block;position:relative;z-index:1}
 .thumb[data-photo]{cursor:zoom-in}
-.item[data-open]{cursor:pointer;-webkit-tap-highlight-color:transparent}
-.item[data-open]:active{background:var(--field)}
+.item[data-open],.item[data-log]{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.item[data-open]:active,.item[data-log]:active{background:var(--field)}
 #viewer{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:#000;color:#fff}
 #viewer::backdrop{background:#000}
 #viewer .vw{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
@@ -237,7 +237,7 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
 </form></dialog>
 
 <dialog id="dlgDrink"><form id="fDrink">
-  <h2>Stappa</h2>
+  <h2 id="dTitle">Stappa</h2>
   <div class="meta" id="drinkLabel"></div>
   <div class="grid" style="margin-top:12px">
     <label>Data<input id="d-date" name="date" type="date"></label>
@@ -248,7 +248,7 @@ label input,label select,label textarea{padding:9px 10px;border:1px solid var(--
   <div class="dlg-actions">
     <span></span>
     <span><button type="button" class="btn" id="drinkCancel">Annulla</button>
-    <button type="submit" class="btn primary">Registra e scala 1</button></span>
+    <button type="submit" class="btn primary" id="dSubmit">Registra e scala 1</button></span>
   </div>
 </form></dialog>
 
@@ -547,7 +547,7 @@ function renderDiario(){
   if(!data.log.length)return `<div class="empty"><h2>Diario vuoto</h2><p>Quando stappi una bottiglia puoi registrare voto e note: le ritrovi qui.</p></div>`;
   const items=[...data.log].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(l=>{
     const b=data.bottles.find(x=>x.id===l.bottleId)||{type:l.type};
-    return `<div class="item">${thumb(b)}
+    return `<div class="item" data-log="${esc(l.id)}">${thumb(b)}
     <div class="info"><h3>${esc(l.label)}</h3>
       <div class="meta">${l.date?new Date(l.date).toLocaleDateString("it-CH",{day:"numeric",month:"long",year:"numeric"}):""}${l.rating?`, ${"★".repeat(l.rating)}${"☆".repeat(5-l.rating)}`:""}</div>
       ${l.note?`<div class="log-note">${esc(l.note)}</div>`:""}
@@ -764,7 +764,20 @@ $("#btnDelete").onclick=async()=>{
 const fD=$("#fDrink");
 function drawStars(){$("#stars").innerHTML=[1,2,3,4,5].map(n=>`<button type="button" data-star="${n}" class="${n<=rating?"on":""}" aria-label="${n} stelle">★</button>`).join("")}
 $("#stars").addEventListener("click",e=>{const n=e.target.dataset.star;if(n){rating=+n===rating?0:+n;drawStars()}});
+let editingLogId=null;
+function openLogEdit(id){
+  const l=data.log.find(x=>x.id===id);if(!l)return;
+  editingLogId=id;drinkingId=null;rating=+l.rating||0;
+  $("#dTitle").textContent="Modifica degustazione";
+  $("#dSubmit").textContent="Salva modifiche";
+  $("#drinkLabel").textContent=l.label||"";
+  $("#d-date").value=l.date||"";$("#d-note").value=l.note||"";drawStars();
+  $("#d-fromWrap").hidden=true;
+  $("#dlgDrink").showModal();
+}
 function openDrink(id){
+  editingLogId=null;
+  $("#dTitle").textContent="Stappa";$("#dSubmit").textContent="Registra e scala 1";
   drinkingId=id;rating=0;const b=data.bottles.find(x=>x.id===id);
   $("#drinkLabel").textContent=`${b.producer}, ${b.name}${b.vintage?" "+b.vintage:""}`;
   $("#d-date").value=new Date().toISOString().slice(0,10);$("#d-note").value="";drawStars();
@@ -774,7 +787,13 @@ function openDrink(id){
   $("#dlgDrink").showModal();
 }
 fD.addEventListener("submit",e=>{
-  e.preventDefault();const b=data.bottles.find(x=>x.id===drinkingId);
+  e.preventDefault();
+  if(editingLogId){
+    const l=data.log.find(x=>x.id===editingLogId);editingLogId=null;
+    if(l){l.date=$("#d-date").value;l.rating=rating;l.note=$("#d-note").value}
+    $("#dlgDrink").close();save();render();toast("Voce aggiornata");return;
+  }
+  const b=data.bottles.find(x=>x.id===drinkingId);
   syncQty(b);
   let from=$("#d-from").value;
   if(!(qAt(b,from)>0))from=qAt(b,"frigo")>0?"frigo":"cantina";
@@ -782,7 +801,8 @@ fD.addEventListener("submit",e=>{
   data.log.push({id:uid(),bottleId:b.id,type:b.type,label:`${b.producer}, ${b.name}${b.vintage?" "+b.vintage:""}`,date:$("#d-date").value,rating,note:$("#d-note").value,from});
   $("#dlgDrink").close();save();render();toast("Registrato nel diario");
 });
-$("#drinkCancel").onclick=()=>$("#dlgDrink").close();
+$("#drinkCancel").onclick=()=>{editingLogId=null;$("#dlgDrink").close()};
+$("#dlgDrink").addEventListener("cancel",()=>{editingLogId=null});
 
 /* ================= foto a tutto schermo ================= */
 let vw={srcs:{},side:"front",token:0};
@@ -959,8 +979,11 @@ document.addEventListener("click",async e=>{
   if(ph){const pb=data.bottles.find(x=>x.id===ph.dataset.photo);if(pb){openViewer(srcsOf(pb),"front");return}}
   const t=e.target.closest("button");
   if(!t){
+    if(e.target.closest("label,input,select,a"))return;
     const it=e.target.closest(".item[data-open]");
-    if(it&&!e.target.closest("label,input,select,a"))openBottle(it.dataset.open);
+    if(it){openBottle(it.dataset.open);return}
+    const lg=e.target.closest(".item[data-log]");
+    if(lg)openLogEdit(lg.dataset.log);
     return;
   }
   const d=t.dataset;
